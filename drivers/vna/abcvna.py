@@ -2,17 +2,11 @@
 This is a model module.  It will not function correctly to pull data, but needs
 to be subclassed.
 """
-import copy
-import warnings
-from typing import Iterable
+import abc
 
-import numpy as np
-import pyvisa
+from ..abcinstr import Instrument
 
-from skrf import Network, Frequency
-
-
-class VNA(object):
+class VNA(Instrument):
     """
     class defining a base analyzer for using with scikit-rf
 
@@ -82,70 +76,9 @@ class VNA(object):
         card_number : int
             for GPIB, default is usually 0
         """
+        super(VNA, self).__init__(address, **kwargs)
 
-        rm = kwargs.get("resource_manager", None)
-        if not rm:
-            rm = pyvisa.ResourceManager(visa_library=kwargs.get("visa_library", ""))
-
-        interface = str(kwargs.get("interface", None)).upper()  # GPIB, SOCKET
-        if interface == "GPIB":
-            board = str(kwargs.get("card_number", "")).upper()
-            resource_string = "GPIB{:}::{:}::INSTR".format(board, address)
-        elif interface == "SOCKET":
-            port = str(kwargs.get("port", 5025))
-            resource_string = "TCPIP0::{:}::{:}::SOCKET".format(address, port)
-        else:
-            resource_string = address
-        self.resource = rm.open_resource(resource_string)  # type: pyvisa.resources.messagebased.MessageBasedResource
-        self.resource.timeout = kwargs.get("timeout", 3000)
-
-        self.resource.read_termination = "\n"  # most queries are terminated with a newline
-        self.resource.write_termination = "\n"
-        if "instr" in resource_string.lower():
-            self.resource.control_ren(2)
-
-        # convenience pyvisa functions
-        self.write = self.resource.write
-        self.read = self.resource.read
-        self.query = self.resource.query
-        self.query_values = self.resource.query_values
-
-    def __enter__(self):
-        """
-        context manager entry point
-
-        Returns
-        -------
-        VNA
-            the Analyzer Driver Object
-        """
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        context manager exit point
-
-        Parameters
-        ----------
-        exc_type : type
-        exc_val : type
-        exc_tb : traceback
-        """
-        self.resource.close()
-
-    def close(self):
-        self.__exit__(None, None, None)
-
-    @property
-    def idn(self):
-        return self.query("*IDN?")
-
-    def reset(self):
-        self.write("*RST")
-
-    def wait_until_finished(self):
-        self.query("*OPC?")
-
+    @abc.abstractmethod
     def get_list_of_traces(self, **kwargs):
         """
         a catalogue of the available data traces
@@ -189,6 +122,7 @@ class VNA(object):
         """
         raise NotImplementedError("must implement with subclass")
 
+    @abc.abstractmethod
     def get_traces(self, traces, **kwargs):
         """
         retrieve traces as 1-port networks from a list returned by
@@ -213,6 +147,7 @@ class VNA(object):
         """
         raise NotImplementedError("must implement with subclass")
 
+    @abc.abstractmethod
     def get_snp_network(self, ports, **kwargs):
         """
         return n-port network as an Network object
@@ -278,6 +213,7 @@ class VNA(object):
 
         return self.get_snp_network(port, **kwargs)
 
+    @abc.abstractmethod
     def get_switch_terms(self, ports=(1, 2), **kwargs):
         """
         create new traces for the switch terms and return as a 2-length list of
@@ -299,6 +235,7 @@ class VNA(object):
         """
         raise NotImplementedError("must implement with subclass")
 
+    @abc.abstractmethod
     def set_frequency_sweep(self, start_freq, stop_freq, num_points, **kwargs):
         """
         Set the frequency sweep parameters on the specified or active channel
@@ -316,23 +253,3 @@ class VNA(object):
             optional parameters
         """
         raise NotImplementedError("must implement with subclass")
-
-    @staticmethod
-    def to_hz(freq, f_unit):
-        """
-        A simple convenience function to create frequency in Hz if it is in a
-        different unit
-
-        Parameters
-        ----------
-        freq : float or np.ndarray
-            a float or numpy.ndarray of floats of the frequency in f_units
-        f_unit : str
-            the units of frequency (Hz, kHz, MHz, GHz, THz)
-
-        Returns
-        -------
-        float or np.ndarray
-            the converted frequency sweep in Hz
-        """
-        return freq * Frequency.multiplier_dict[f_unit.lower()]
