@@ -1,15 +1,15 @@
 import warnings
-from collections import OrderedDict, Iterable
+from collections import OrderedDict
 
 import numpy as np
 import skrf
 import pyvisa
 
-from . import abcvna
+from ..abcvna import VNA
 from . import keysight_pna_scpi
 
 
-class PNA(abcvna.VNA):
+class PNA(VNA):
     """
     Class for modern Keysight/Agilent Peformance Network Analyzers
     """
@@ -36,7 +36,6 @@ class PNA(abcvna.VNA):
         super(PNA, self).__init__(address, **kwargs)
         self.resource.timeout = kwargs.get("timeout", 2000)
         self.scpi = keysight_pna_scpi.SCPI(self.resource)
-        # self.use_binary()
         self.use_ascii()
 
     def use_binary(self):
@@ -135,10 +134,10 @@ class PNA(abcvna.VNA):
                 sweep_mode = "GROUPS"
                 number_of_sweeps = self.scpi.query_averaging_count(channel)
                 self.scpi.set_groups_count(channel, number_of_sweeps)
-                number_of_sweeps *= self.nports
+                number_of_sweeps *= self.NPORTS
             else:
                 sweep_mode = "SINGLE"
-                number_of_sweeps = self.nports
+                number_of_sweeps = self.NPORTS
             channels[i] = {
                 "cnum": channel,
                 "sweep_time": sweep_time,
@@ -222,7 +221,11 @@ class PNA(abcvna.VNA):
         ports : Iterable
             a iterable of integers designating the ports to query
         kwargs : dict
-            channel(int), sweep(bool), name(str), f_unit(str), corrected(bool)
+            channel(int) [ default 'self.active_channel' ]
+            sweep(bool) [default True]
+            name(str) [defaut \"\"]
+            f_unit(str) [ default \"GHz\" ]
+            raw_data(bool)  [default False]
 
         Returns
         -------
@@ -235,7 +238,7 @@ class PNA(abcvna.VNA):
         # force activate channel to avoid possible errors:
         self.active_channel = channel = kwargs.get("channel", self.active_channel)
 
-        sweep = kwargs.get("sweep", False)
+        sweep = kwargs.get("sweep", True)
         name = kwargs.get("name", "")
         f_unit = kwargs.get("f_unit", "GHz")
         raw_data = kwargs.get("raw_data", False)
@@ -259,6 +262,7 @@ class PNA(abcvna.VNA):
                 data = self.scpi.query_snp_data(channel, ports)
         else:
             data = self.scpi.query_snp_data(channel, ports)
+        self.scpi.set_snp_format(snp_fmt)  # restore the value before we got the RI data
         self.scpi.set_snp_format(snp_fmt)  # restore the value before we got the RI data
 
         nrows = int(len(data) / npoints)
@@ -379,8 +383,8 @@ class PNA(abcvna.VNA):
     def set_frequency_sweep(self, f_start, f_stop, f_npoints, **kwargs):
         f_unit = kwargs.get("f_unit", "hz").lower()
         if f_unit != "hz":
-            f_start = self.to_hz(f_start, f_unit)
-            f_stop = self.to_hz(f_stop, f_unit)
+            f_start = f_start * skrf.Frequency.multiplier_dict[f_unit.lower()]
+            f_stop = f_stop * skrf.Frequency.multiplier_dict[f_unit.lower()]
         channel = kwargs.get("channel", self.active_channel)
         self.scpi.set_f_start(channel, f_start)
         self.scpi.set_f_stop(channel, f_stop)
